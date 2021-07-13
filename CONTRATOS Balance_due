@@ -1,0 +1,103 @@
+
+--SELECT AgreementNumber, * FROM Agreements WHERE AGREEMENTID =156081 
+--*************************************
+DECLARE @CONTRACT_NUMBER VARCHAR(12) = '01-CC-555'
+
+declare @id int = /*156081*/(SELECT TOP 1 AGREEMENTID FROM Agreements WHERE AgreementNumber = @CONTRACT_NUMBER)
+declare @current int = @id
+create table #encontrados (idn int identity(1,1),Id int)
+create table #temp (idn int identity(1,1), Id int)
+
+insert into #encontrados values (@current)
+declare @Idtemp int = 0
+declare @cont2 int = 0
+declare @cont3 int = 0
+
+declare @totalContratos int
+declare @Total_SumaContrato money
+declare @Total_SumaPagados_alContrato money
+declare @Balance_due money
+
+
+	while(@cont2 = 0)
+	begin
+		if ((select isnull(preveusAgreement,0) from AGREEMENTS where AgreementID  = @current) > 0)
+		begin
+		 
+		set @current= (select preveusAgreement from AGREEMENTS where AgreementID =  @current )
+		 insert into #encontrados values(@current)
+		end	else 
+		begin 
+
+			set @cont2=1
+		end
+	 end
+	 set @current = (select top 1 id from #encontrados order by idn desc)
+
+	 while (@cont3 = 0)
+	 begin
+		if((select count(AgreementID) from AGREEMENTS where preveusAgreement  = @current) > 0 or (select count(*) Id from #temp) > 0)
+			begin
+			
+				insert into #temp select AgreementID from AGREEMENTS where preveusAgreement  = @current
+				
+				while((select count(*) from #temp) > 0 )
+				begin
+				set @Idtemp = (select top 1 Id from #temp order by Id)
+				set @current = @Idtemp
+					
+				insert into #encontrados values(@Idtemp)
+				if((select count(AgreementID) from AGREEMENTS where preveusAgreement  = @current) > 0)begin insert into #temp select AgreementID from AGREEMENTS where preveusAgreement  = @current end
+	
+				delete from #temp where Id = @Idtemp
+				--
+				end
+			end
+		else
+			
+			if((select isnull(AgreementID,0) from AGREEMENTS where preveusAgreement  = @current) > 0)
+			begin
+		
+			set @current = (select  AgreementID from AGREEMENTS where preveusAgreement  = @current )
+			Insert into #encontrados values(@current)
+			end
+			else begin set @cont3 = 1 end
+	 end
+
+--***********************************PRUEBAS********************** 
+ SELECT AgreementID
+INTO #TEMPORAL_FILTRADOS
+FROM AGREEMENTS A
+INNER JOIN LS_ContractStatus CS ON CS.ContractStatusID = a.ContractStatusID
+ WHERE AgreementID IN (select distinct Id from #encontrados)
+AND CS.Membership_Status <> 'CANCELED'
+
+--********************************************************* 
+select @totalContratos = Count(*), @Total_SumaContrato = Convert(money, sum(SalePrice + ADMFee + tax)) from Agreements A
+INNER JOIN LS_ContractStatus CS ON CS.ContractStatusID = a.ContractStatusID
+where A.AgreementID in (select distinct AgreementID from #TEMPORAL_FILTRADOS) 
+
+ select  @Total_SumaPagados_alContrato= Sum((CASE WHEN TP.Type = 'DN' THEN ( Amount) * -1 ELSE Amount END))
+  from ARtransaction ART
+INNER JOIN TransactionType TP ON ART.TransactionTypeID = TP.ID 
+ where ART.agreementNumber in(select AgreementID from #TEMPORAL_FILTRADOS) 
+ and ART.Status = 'Active' 
+ AND TP.LS_Auto = 0
+
+ SET @Balance_due = @Total_SumaContrato - @Total_SumaPagados_alContrato 
+select @totalContratos AS CANTIDAD_CONTRATOS, @Total_SumaContrato AS SUMA_CONTRATOS,@Total_SumaPagados_alContrato AS SUMA_PAGOS,@Balance_due AS BALACE_DEU
+
+drop table #encontrados
+drop table #temp
+DROP TABLE #TEMPORAL_FILTRADOS
+
+--***************************************************************************PRUEBAS
+--select /*preveusAgreement,AgreementID,*/SalePrice,ADMFee,tax from agreements a
+--left join LS_ContractStatus cs on a.ContractStatusID = cs.ContractStatusID
+-- where AgreementID in( select distinct Id from #encontrados /*order by id*/)
+-- and cs.Membership_Status <> 'CANCELED'
+
+--select AgreementID from #TEMPORAL_ENCONTRADOS
+
+
+
